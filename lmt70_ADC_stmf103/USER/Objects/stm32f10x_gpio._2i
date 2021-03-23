@@ -1,0 +1,6 @@
+--c99 --gnu -c --cpu Cortex-M3 -g -O0 --apcs=interwork --split_sections -I ..\CORE -I ..\USER -I ..\SYSTEM\delay -I ..\SYSTEM\sys -I ..\SYSTEM\usart -I ..\STM32F10x_FWLib\inc -I ..\HARDWARE\IIC -I ..\HARDWARE\MCP3421 -I ..\APP\HAL -I ..\APP\FML -I ..\APP\DRL -I ..\APP\BLL -I ..\APP\APP\inc
+-I.\RTE\_Program
+-ID:\keil5\ARM\PACK\Keil\STM32F1xx_DFP\2.3.0\Device\Include
+-IF:\keil5\ARM\CMSIS\Include
+-D__UVISION_VERSION="525" -DSTM32F10X_MD -DSTM32F10X_MD -DUSE_STDPERIPH_DRIVER
+-o .\objects\stm32f10x_gpio.o --omf_browse .\objects\stm32f10x_gpio.crf --depend .\objects\stm32f10x_gpio.d --feedback ".\Objects\crlpane.fed" "..\STM32F10x_FWLib\src\stm32f10x_gpio.c"

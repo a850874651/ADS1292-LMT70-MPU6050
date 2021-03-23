@@ -1,0 +1,23 @@
+--cpu Cortex-M3
+".\objects\main.o"
+".\objects\stm32f10x_it.o"
+".\objects\system_stm32f10x.o"
+".\objects\core_cm3.o"
+".\objects\startup_stm32f10x_hd.o"
+".\objects\stm32f10x_gpio.o"
+".\objects\stm32f10x_rcc.o"
+".\objects\stm32f10x_tim.o"
+".\objects\misc.o"
+".\objects\stm32f10x_usart.o"
+".\objects\sys.o"
+".\objects\usart.o"
+".\objects\my_app.o"
+".\objects\lmt70.o"
+".\objects\mcp3421.o"
+".\objects\port_delay.o"
+".\objects\port_iic.o"
+".\objects\port_debug.o"
+--strict --scatter ".\Objects\crlpane.sct"
+--summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\Listings\crlpane.map" -o .\Objects\crlpane.axf

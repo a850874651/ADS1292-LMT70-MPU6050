@@ -1,0 +1,400 @@
+/**
+  ******************************************************************************
+  * @file           : my_app.c
+  * @brief          : 顶层应用程序源文件
+  * @details        : 演示如何使用ads1292接口函数。双通道通道一测量呼吸波形，通道二
+  *                   测量心电波形，2.42v内部参考电压，500sps采样率，通道一通两倍增
+  *                   益，道二六倍增益。上电2-3秒后开始输出数据。打开我们提供的
+  *                   上位机软件即可分别看到呼吸图和心电图。注意：由于是未经过数字滤波
+  *                   的原始信号所以会有工频干扰，使用电池（独立电源）供电或者拔掉电脑
+  *                   适配器会显著降低干扰。后续会更新数字信号处理功能。
+  * @author         : Charmander 有为电子科技 QQ: 228303760
+  * @date           : 2020/9/2
+  * @version        : V0.1
+  * @copyright      : Copyright (C)
+  ******************************************************************************
+  * @attention
+  * NONE
+  ******************************************************************************
+  * @verbatim
+  * 修改历史:
+  *      1. 日期：2020/9/2
+  *         作者：Charmander
+  *         修改：
+  * @endverbatim
+  ******************************************************************************
+  */
+
+/* Includes ------------------------------------------------------------------*/
+#include "my_app.h"
+#include "lcd.h"
+#include "ads1292r.h"
+#include "delay.h"
+#include "usart2.h"
+/** @addtogroup My_App
+  * @{
+  */
+/* Private typedef -----------------------------------------------------------*/
+
+/* Private define ------------------------------------------------------------*/
+
+/* Private macro -------------------------------------------------------------*/
+
+/* Private variables ---------------------------------------------------------*/
+#define WINDOWS_LENGTH 300
+uint8_t ad_b[9] ;   /* 存储原始数据 */
+int32_t ad_rr[2] ;  /* 转换后的i32数据 */
+int32_t ad_rr2[2] ;  /* 转换后的i32数据 */
+uint8_t ads_frame_tx[11] = { 0xAA, 0xAA} ;  /* 协议 */
+int arr=0;
+int arr1=0;
+int arr_2=0;
+int arr_21=0;
+int heart_sum[300]= {0};
+float h_freq=0;
+//float min;
+//int h_i=0;
+float heart_sum_f[300]={0.0};
+char h_str[80];
+char h_str2[150];
+char h_str3[80];
+char h_str4[80];
+int h_j;
+int min=0;
+//float j[5]={500,500,500,500,500};
+double heart_avg=0;//平均值
+double yu=0;
+//	int heart_max=0;//最大值
+int h_index=0; //第一个最高值的x轴
+
+int h_instance=0;//算出来的距离
+
+int tmp=0; //距离的保留值
+int h_x=0;
+int h_windows=0;
+u8 end=0;
+u8 end2=0;
+unsigned long hea_sum=0;
+typedef struct heart_max
+{
+    int value;
+    int index;
+} heart_max_list;
+heart_max_list max;
+/* Private function prototypes -----------------------------------------------*/
+
+/* Private functions ---------------------------------------------------------*/
+
+/* Exported functions --------------------------------------------------------*/
+
+/* 24位有符号数转换成24位无符号数，大端 */
+int32_t i24toi32( uint8_t *p_i32)
+{
+    int32_t rev = 0 ;
+
+    rev = ( ( (int32_t)p_i32[0]) << 16)
+          | ( ( (int32_t) p_i32[1]) << 8) | ( (int32_t) p_i32[2]) ;
+
+    if ( ( p_i32[0] & 0x80) == 0x80)
+    {
+        rev |= 0xFF000000 ;
+    }
+
+    return rev ;
+}
+
+/* 向上位机发送ads数据，测试函数 */
+void tx_ads_data( uint8_t *str, int32_t *ad)
+{
+    uint8_t i ;
+
+    str[2] = ad[0] >> 24 ;  /* 填充通道一数据，大端 */
+    str[3] = ad[0] >> 16 ;
+    str[4] = ad[0] >> 8 ;
+    str[5] = ad[0] ;
+
+    str[6] = ad[1] >> 24 ;  /* 填充通道二数据，大端 */
+    str[7] = ad[1] >> 16 ;
+    str[8] = ad[1] >> 8 ;
+    str[9] = ad[1] ;
+
+    /* 发送数据 */
+    for ( i = 0; i < 10; i++)
+    {
+        while((USART1->SR&0X40)==0) ;   /* 循环发送,直到发送完毕 */
+        USART1->DR = str[i] ;
+    }
+}
+/* 计算0-49||50-99||100-149||150-199||200-249  */
+//int heart_avg(int heart_sum[300],int j)
+//{
+//    int i;
+//    int sum=0;
+//    int avg=0;
+//    switch(j) {
+//    case 49: {
+//        i=0;
+//        for(i; i<50; i++)
+//        {
+//            sum+=heart_sum[i];
+
+//        }
+//        break;
+//    }
+//    case 99: {
+//        i=50;
+//        for(i; i<100; i++)
+//        {
+//            sum+=heart_sum[i];
+
+//        }
+//        break;
+//    }
+//    case 149: {
+//        i=100;
+//        for(i; i<150; i++)
+//        {
+//            sum+=heart_sum[i];
+
+//        }
+//        break;
+//    }
+//    case 199: {
+//        i=150;
+//        for(i; i<200; i++)
+//        {
+//            sum+=heart_sum[i];
+
+//        }
+//        break;
+//    }
+//    case 249: {
+//        i=200;
+//        for(i; i<250; i++)
+//        {
+//            sum+=heart_sum[i];
+
+//        }
+//        break;
+//    }
+//    }
+
+//    avg=sum/50;
+//    return avg;
+//}
+
+
+
+/* 应程序初始化 */
+void my_app_init()
+{
+    while(ads1292r_init( 5) == 0) ; /* 初始化ads1292 */
+
+    /* 双通道采集呼吸和心电信号，其他模式根据需要后续添加 */
+    ads1292r_normal_adc_start() ;
+
+    /* 双通道开始采集内部测试信号通道。1HZ方波。 */
+    /* ads1292r_test_adc_start(void) ; */
+}
+void clear_point(u16 hang)
+{
+    u16 index_clear_lie = 0;
+//	u8 jg=0;
+    POINT_COLOR = WHITE;
+    for(index_clear_lie = 0; index_clear_lie <320; index_clear_lie++)
+    {
+        lcd_huadian(hang,index_clear_lie);
+
+    }
+
+    POINT_COLOR=WHITE;
+}
+void my_app()
+{
+    ads1292r_get_value( ad_b) ; /* 获取原始数据 */
+    ad_rr[1] = i24toi32(ad_b+6) ;  /* 转换原始数据 */
+    max.value=heart_sum[0];  //把最大值赋值给初值
+		min=heart_sum[0];
+    for(h_j=0; h_j<WINDOWS_LENGTH; h_j=h_j+1)
+    {
+        ads1292r_get_value( ad_b) ; /* 获取原始数据 */
+        ad_rr[1] = i24toi32(ad_b+6) ;  /* 转换原始数据 */
+        tx_ads_data( ads_frame_tx, ad_rr)  ;    /* 向上位机发送数据 */
+        heart_sum[h_j]=ad_rr[1]; //存第j个值进去
+      
+        if(max.value>heart_sum[h_j]) //把第一个值来做判断  如果j位上的数值小于初值
+        {
+            max.value=max.value;  //把最大值赋值给初值
+            max.index=max.index;
+        } else if(max.value<heart_sum[h_j])
+        {
+            max.value=heart_sum[h_j];
+            max.index=h_j;
+        }
+        else if(max.value==heart_sum[h_j])
+        {
+            max.value=heart_sum[h_j];
+            max.index=h_j;
+        }
+				/////////
+				if(min>heart_sum[h_j]) //把第一个值来做判断  如果j位上的数值小于初值
+        {
+            min=heart_sum[h_j];  //把最大值赋值给初值
+        } else if(min<heart_sum[h_j])
+        {
+            min=min;
+        }
+        else if(min==heart_sum[h_j])
+        {
+            min=heart_sum[h_j];
+        }
+
+    }
+		for(int u=0;u<300;u++)
+		{
+			heart_sum_f[u]=((float)heart_sum[u]-min)/((float)max.value-min);
+			 hea_sum+=heart_sum_f[1]; //算出总值
+			        if(max.value>heart_sum[h_j]) //把第一个值来做判断  如果j位上的数值小于初值
+        {
+            max.value=max.value;  //把最大值赋值给初值
+            max.index=max.index;
+        } else if(max.value<heart_sum[h_j])
+        {
+            max.value=heart_sum[h_j];
+            max.index=h_j;
+        }
+        else if(max.value==heart_sum[h_j])
+        {
+            max.value=heart_sum[h_j];
+            max.index=h_j;
+        }
+		}
+		heart_avg=hea_sum/300.0;
+    yu=max.value/heart_avg;
+//    sprintf(h_str2,"avg:%f,max:%d,index:%d,sum:%ld,yu:%lf\n",heart_avg,max.value,max.index,hea_sum,yu);
+//    Usart2_SendStr_length(h_str2,65);
+    hea_sum=0;
+
+
+    if(yu>1.03)
+    {
+//        Usart2_SendStr_length("abc\n",4);
+			if(end2==1)
+			{
+				h_windows=2;
+				h_index=max.index;
+				h_instance=h_x+h_index;
+				h_x=WINDOWS_LENGTH-h_index;
+				end2=0;
+				end=0;
+			}
+			else
+			{
+				h_windows++;//1 2  1
+        h_index=max.index;//130 140  160
+        h_instance=h_x+h_index;//130  150+140  140+160
+        h_x=WINDOWS_LENGTH-h_index;//150 140 120
+        end=0;
+			}
+       
+				
+
+    }
+    if(yu<=1.03)
+    {
+
+
+            h_x+=300;
+//            sprintf(h_str4,"h_instance:%d\n",h_instance);
+//            Usart2_SendStr_length(h_str4,14);
+
+    }
+
+    if(h_windows==2)
+    {
+
+        end=1;
+				end2=1;
+        tmp=300-h_index	;
+        h_freq=h_instance;
+
+//        sprintf(h_str3,"freq1:%d\n",h_instance);
+//        Usart2_SendStr_length(h_str3,12);
+        h_freq=60*500/h_freq;
+        h_windows=0;
+
+        h_instance=0;
+			if(h_freq<150&&h_freq>50){
+        sprintf(h_str,"freq2:%.3f\n",h_freq);
+        Usart2_SendStr_length(h_str,17);
+			}
+    }
+
+}
+/* 应用程序 */
+//void my_app()
+//{
+//    int j;
+////		int hea_avg;
+////		int hea_max;
+////		int index;
+////		int windows=0;
+////		int windows_avg=0;
+////	u32 ECG1,ECG_avg;
+//    ads1292r_get_value( ad_b) ; /* 获取原始数据 */
+//
+//    ad_rr[0] = i24toi32(ad_b+3) ;  /* 转换原始数据 */
+//    ad_rr[1] = i24toi32(ad_b+6) ;  /* 转换原始数据 */
+
+//			tx_ads_data( ads_frame_tx, ad_rr)  ;    /* 向上位机发送数据 */
+//    for(j=0; j<280; j=j+1)
+//    {
+
+
+////        arr=(ad_rr[0]-250000)/1000;//呼吸的y轴
+
+////        arr_2=(ad_rr[1]-1150000)/1000;//心率的y轴
+//        ads1292r_get_value( ad_b) ; /* 获取原始数据 */
+////        ad_rr[0] = i24toi32(ad_b+3) ;  /* 转换原始数据 */
+//        ad_rr[1] = i24toi32(ad_b+6) ;  /* 转换原始数据 */
+////        tx_ads_data( ads_frame_tx, ad_rr)  ;    /* 向上位机发送数据 */
+////        arr_21=(ad_rr[1]-1150000)/1000;//心率第二次测量的y轴
+//        heart_sum[j]+=ad_rr; //存第j个值进去
+////        heart_sum[j+1]+=arr_21;		//存第j+1个值进去、
+////        if(j==49||j==99||j==199||j==249)
+////        {
+////            hea_avg=heart_avg(heart_sum,j);
+////        }
+////				if(arr_2>hea_avg)
+////				{
+////					index=j;
+////			//			hea_max=arr_2;
+////					windows++;
+////				}
+////				if(arr_21>hea_avg)
+////				{
+////					index=j+1;
+////					windows++;
+////			//			hea_max=arr_21;
+////				}
+////				if(j==279)
+////				{
+////					windows_avg=windows/60;
+////				}
+////						clear_point(j);
+////						LCD_DrawPoint(j,arr_2);
+////						LCD_DrawLine(j,320-arr_2,j+1,320-arr_21,BLACK);
+
+
+//    }
+
+//			printf("breath:%d",ad_rr[0]);
+//		printf("breath:%d",ad_rr[1]);
+//}
+
+/**
+  * @}
+  */
+
+
+
